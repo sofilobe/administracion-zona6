@@ -22,7 +22,7 @@ button.b{background:var(--pr);color:#fff;border:0;cursor:pointer}button.s{backgr
 </style></head><body><div id="root"></div>
 <script>
 // === CONFIGURACIÓN: pegar los datos de Supabase (Project Settings > API) ===
-const SUPA_URL='https://krdirlqrnqcbpxasisvc.supabase.co',SUPA_KEY='eyJ...tu clave completa...';
+const SUPA_URL='https://krdirlqrnqcbpxasisvc.supabase.co',SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtyZGlybHFybnFjYnB4YXNpc3ZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5Mjg3NDEsImV4cCI6MjEwNzUwNDc0MX0.ztpdjuGaFyGufb58qquVS9DbHLfI_D8hZzXH8O7l3aE';
 const sb=supabase.createClient(SUPA_URL,SUPA_KEY);
 const $=s=>document.querySelector(s),R=$('#root');
 const money=n=>'$ '+(+n||0).toLocaleString('es-AR',{maximumFractionDigits:2});
