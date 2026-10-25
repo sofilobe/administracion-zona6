@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gestión de Zona Scout</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root{--bg:#f6f4ee;--card:#fff;--tx:#1f2a24;--mu:#6b756e;--pr:#1d5c3a;--bd:#ddd8c9;--rd:#b3392f;--ok:#1d7a46}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#171c19;--card:#1f2622;--tx:#e9ede8;--mu:#9aa59d;--pr:#4fb27c;--bd:#33403a;--rd:#e5776d;--ok:#5cc58a}}
+:root[data-theme=dark]{--bg:#171c19;--card:#1f2622;--tx:#e9ede8;--mu:#9aa59d;--pr:#4fb27c;--bd:#33403a;--rd:#e5776d;--ok:#5cc58a}
+.tg{position:fixed;right:12px;bottom:12px;z-index:50;background:var(--card);color:var(--tx);border:1px solid var(--bd);border-radius:99px;padding:8px 14px;font:inherit;font-size:13px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.2)}
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:14px;z-index:99;overflow:auto}.ov .card{max-width:420px;width:100%;margin:0}.ov form{grid-template-columns:1fr}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,sans-serif}
+header{padding:14px 16px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center}h1{font-size:18px;margin:0}
+nav{display:flex;gap:4px;padding:0 12px;overflow-x:auto;border-bottom:1px solid var(--bd)}
+nav button{background:none;border:0;padding:10px 12px;color:var(--mu);font:inherit;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
+nav button.on{color:var(--pr);border-color:var(--pr);font-weight:600}
+main{padding:14px;max-width:980px;margin:auto}.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.kpi b{display:block;font-size:22px}.kpi span{color:var(--mu);font-size:13px}
+form{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;align-items:end}
+label{font-size:12px;color:var(--mu);display:flex;flex-direction:column;gap:3px}
+input,select,button.b{font:inherit;padding:8px;border:1px solid var(--bd);border-radius:7px;background:var(--bg);color:var(--tx)}
+button.b{background:var(--pr);color:#fff;border:0;cursor:pointer}button.s{background:none;border:1px solid var(--bd);color:var(--tx);border-radius:6px;padding:3px 8px;cursor:pointer;font-size:12px}
+.tw{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--bd);vertical-align:top}th{color:var(--mu);font-weight:500;font-size:12px}
+.in{color:var(--ok)}.out{color:var(--rd)}.mu{color:var(--mu)}.tag{font-size:11px;padding:1px 7px;border-radius:99px;border:1px solid var(--bd)}
+.bar{height:8px;background:var(--pr);border-radius:4px}.trk{background:var(--bd);border-radius:4px;height:8px}.login{max-width:340px;margin:60px auto}.login form{grid-template-columns:1fr}
+</style></head><body><button class="tg" id="tg"></button><div id="root"></div>
+<script>
+// === CONFIGURACIÓN: pegar los datos de Supabase (Project Settings > API) ===
+const SUPA_URL='https://krdirlqrnqcbpxasisvc.supabase.co',SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtyZGlybHFybnFjYnB4YXNpc3ZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5Mjg3NDEsImV4cCI6MjEwNzUwNDc0MX0.ztpdjuGaFyGufb58qquVS9DbHLfI_D8hZzXH8O7l3aE';
+const sb=supabase.createClient(SUPA_URL,SUPA_KEY);
+const $=s=>document.querySelector(s),R=$('#root');
+const money=n=>'$ '+(+n||0).toLocaleString('es-AR',{maximumFractionDigits:2});
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const EVT=['Programa','Formación de adultos','Administración','Otro'],RN={pendiente:'Pendiente',dd:'DD',equipo:'Equipo de administración',admin:'Administrador'};
+const today=()=>new Date().toLocaleDateString('en-CA');
+let me,role,tab='balance',S={movs:[],buds:[],items:[],reqs:[],dist:[],grupos:[],perf:[]};
+const staff=()=>role==='admin'||role==='equipo';
+const TABS=()=>[['balance','Balance'],...(staff()?[['movs','Movimientos'],['pres','Presupuesto']]:[]),['inv','Inventario'],['dist','Distritos'],['reqs','Solicitudes'],...(role==='admin'?[['users','Usuarios']]:[])];
+async function boot(){
+  const{data:{session}}=await sb.auth.getSession();if(!session)return loginView();
+  me=session.user;const{data:p}=await sb.from('perfiles').select('rol').eq('id',me.id).single();role=p?.rol||'pendiente';
+  if(role==='pendiente')return R.innerHTML=`<div class="card login"><b>Cuenta pendiente de aprobación</b><p class="mu">Un administrador tiene que habilitar tu usuario (${esc(me.email)}). Volvé a entrar más tarde.</p><button class="b" onclick="salir()">Salir</button></div>`;
+  await load();render();
+}
+async function load(){
+  const t=['movimientos','presupuestos','materiales','solicitudes','distritos','grupos'].map(x=>sb.from(x).select('*')),r=await Promise.all(t);
+  [S.movs,S.buds,S.items,S.reqs,S.dist,S.grupos]=r.map(x=>x.data||[]);
+  if(role==='admin')S.perf=(await sb.from('perfiles').select('*')).data||[];
+}
+async function run(p){const{error}=await p;if(error)alert(error.message);else{await load();render()}}
+function loginView(){R.innerHTML=`<div class="card login"><h1>🏕️ Gestión de Zona</h1><br><form onsubmit="return false"><label>Email<input id="em" type="email"></label><label>Contraseña (mín. 6)<input id="pw" type="password"></label><button class="b" onclick="auth(0)">Ingresar</button><button class="s" onclick="auth(1)">Crear cuenta</button></form><p class="mu">Las cuentas nuevas deben ser aprobadas por un administrador.</p></div>`}
+async function auth(nuevo){const c={email:$('#em').value.trim(),password:$('#pw').value};const{error}=nuevo?await sb.auth.signUp(c):await sb.auth.signInWithPassword(c);if(error)return alert(error.message);boot()}
+async function salir(){await sb.auth.signOut();location.reload()}
+function render(){
+  if(!TABS().some(t=>t[0]===tab))tab='balance';
+  R.innerHTML=`<header><h1>🏕️ Gestión de Zona</h1><div><span class="mu">${esc(me.email)}</span> <span class="tag">${RN[role]}</span> <button class="s" onclick="salir()">Salir</button></div></header><nav>${TABS().map(([k,l])=>`<button class="${k===tab?'on':''}" onclick="tab='${k}';render()">${l}</button>`).join('')}</nav><main>${({balance:vBalance,movs:vMovs,pres:vPres,inv:vInv,dist:vDist,reqs:vReqs,users:vUsers})[tab]()}</main>`;
+}
+const norm=s=>String(s||'').trim().toLowerCase();
+const tot=()=>{const f=t=>S.movs.filter(m=>m.tipo===t).reduce((a,m)=>a+ +m.monto,0),i=f('ingreso'),e=f('egreso');return{i,e,b:i-e}};
+const gastado=p=>S.movs.filter(m=>m.tipo==='egreso'&&norm(m.evento)===norm(p.evento)).reduce((a,m)=>a+ +m.monto,0);
+const enUso=i=>S.reqs.filter(r=>r.material_id===i.id&&r.estado==='aprobada'),nUso=i=>enUso(i).reduce((a,r)=>a+r.cant,0),disp=i=>i.cant-nUso(i);
+const usoHtml=i=>{const u=enUso(i);return u.length?`<br><span class="tag" style="color:#b7791f;border-color:#b7791f">En uso: ${nUso(i)} de ${i.cant}</span><br><span class="mu">${u.map(r=>esc(r.quien)+' ('+esc(r.evento)+', ×'+r.cant+')').join('; ')}</span>`:''};
+function budTable(edit){if(!S.buds.length)return '<p class="mu">Sin presupuestos planificados.</p>';return `<div class="tw"><table><tr><th>Evento</th><th>Planificado</th><th>Gastado</th><th>Restante</th><th style="min-width:110px">Avance</th>${edit?'<th></th>':''}</tr>${S.buds.map(p=>{const g=gastado(p),pc=p.monto?g/p.monto*100:0,o=g>p.monto;return `<tr><td>${esc(p.evento)}<br><span class="tag">${esc(p.tipo_evento)}</span></td><td>${money(p.monto)}</td><td>${money(g)}</td><td class="${o?'out':''}">${money(p.monto-g)}</td><td><div class="trk"><div class="bar" style="width:${Math.min(100,pc)}%;${o?'background:var(--rd)':''}"></div></div><span class="mu">${Math.round(pc)}%</span></td>${edit?`<td><button class="s" onclick="adjBud('${p.id}')">Ajustar</button> ${role==='admin'?`<button class="s" onclick="delBud('${p.id}')">Borrar</button>`:''}</td>`:''}</tr>`}).join('')}</table></div>`}
+function movTable(l,edit){if(!l.length)return '<p class="mu">Sin movimientos.</p>';return `<div class="tw"><table><tr><th>Fecha</th><th>Evento</th><th>Concepto</th><th>Monto</th><th>Comprob.</th>${edit?'<th></th>':''}</tr>${l.map(m=>`<tr><td>${esc(m.fecha)}</td><td>${esc(m.evento)}<br><span class="tag">${esc(m.tipo_evento)}</span></td><td>${esc(m.concepto)}</td><td class="${m.tipo==='ingreso'?'in':'out'}">${m.tipo==='ingreso'?'+':'−'}${money(m.monto)}</td><td>${m.comprobante?`<button class="s" onclick="verComp('${esc(m.comprobante)}')">Ver</button>`:'—'}</td>${edit?`<td><button class="s" onclick="delMov('${m.id}')">Borrar</button></td>`:''}</tr>`).join('')}</table></div>`}
+function vBalance(){const t=tot(),by={};S.movs.filter(m=>m.tipo==='egreso').forEach(m=>by[m.tipo_evento]=(by[m.tipo_evento]||0)+ +m.monto);const mx=Math.max(1,...Object.values(by));
+  return `<div class="grid"><div class="card kpi"><span>Ingresos</span><b class="in">${money(t.i)}</b></div><div class="card kpi"><span>Egresos</span><b class="out">${money(t.e)}</b></div><div class="card kpi"><span>Saldo disponible</span><b>${money(t.b)}</b></div><div class="card kpi"><span>Materiales activos</span><b>${S.items.filter(i=>i.estado==='activo').length}</b></div></div>
+  <div class="card"><b>Egresos por tipo de evento</b>${Object.entries(by).map(([k,v])=>`<p style="margin:10px 0 3px">${esc(k)} — ${money(v)}</p><div class="bar" style="width:${v/mx*100}%"></div>`).join('')||'<p class="mu">Sin egresos.</p>'}</div>
+  <div class="card"><b>Presupuesto planificado vs. gasto real</b>${budTable(false)}</div>
+  <div class="card"><b>Últimos movimientos</b>${movTable(S.movs.slice().sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0,6))}</div>`}
+function vMovs(){return `<div class="card"><b>Registrar movimiento</b><br><br><form onsubmit="addMov(event)"><label>Tipo<select name="tipo"><option value="egreso">Egreso</option><option value="ingreso">Ingreso</option></select></label><label>Fecha<input type="date" name="fecha" value="${today()}" required></label><label>Monto<input type="number" step="0.01" min="0" name="monto" required></label><label>Tipo de evento<select name="te">${EVT.map(e=>`<option>${e}</option>`).join('')}</select></label><label>Evento<input name="evento" list="evs" required><datalist id="evs">${S.buds.map(p=>`<option value="${esc(p.evento)}">`).join('')}</datalist></label><label>Concepto<input name="concepto" required></label><label>Comprobante (opcional)<input type="file" name="file" accept="image/*,application/pdf"></label><button class="b" id="mb">Guardar</button></form></div>
+  <div class="card"><b>Exportar movimientos</b><br><br><form onsubmit="exportCsv(event)"><label>Desde<input type="date" name="d"></label><label>Hasta<input type="date" name="h"></label><label>Tipo<select name="t"><option value="">Ingresos y egresos</option><option value="ingreso">Solo ingresos</option><option value="egreso">Solo egresos</option></select></label><button class="b">Descargar CSV (Excel)</button></form></div>
+  <div class="card"><b>Historial</b>${movTable(S.movs.slice().sort((a,b)=>b.fecha.localeCompare(a.fecha)),role==='admin')}</div>`}
+async function addMov(e){e.preventDefault();const f=e.target,b=$('#mb');b.disabled=true;let path=null;const file=f.file.files[0];
+  if(file){path=Date.now()+'_'+file.name.replace(/[^\w.\-]/g,'_');const{error}=await sb.storage.from('comprobantes').upload(path,file);if(error){b.disabled=false;return alert(error.message)}}
+  run(sb.from('movimientos').insert({tipo:f.tipo.value,fecha:f.fecha.value,monto:+f.monto.value,tipo_evento:f.te.value,evento:f.evento.value.trim(),concepto:f.concepto.value.trim(),comprobante:path}))}
+async function verComp(p){const w=window.open('');const{data,error}=await sb.storage.from('comprobantes').createSignedUrl(p,120);if(error){w.close();return alert(error.message)}w.location=data.signedUrl}
+const delMov=id=>confirm('¿Borrar este movimiento?')&&run(sb.from('movimientos').delete().eq('id',id));
+function exportCsv(e){e.preventDefault();const f=e.target,d=f.d.value,h=f.h.value,t=f.t.value,l=S.movs.filter(m=>(!d||m.fecha>=d)&&(!h||m.fecha<=h)&&(!t||m.tipo===t)).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  if(!l.length)return alert('No hay movimientos en ese rango.');const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"',n=v=>String(v).replace('.',',');
+  const rows=[['Fecha','Tipo','Tipo de evento','Evento','Concepto','Monto','Comprobante'].map(q).join(';')];
+  l.forEach(m=>rows.push([q(m.fecha),q(m.tipo),q(m.tipo_evento),q(m.evento),q(m.concepto),n(m.monto),q(m.comprobante?'Sí':'No')].join(';')));
+  const I=l.filter(m=>m.tipo==='ingreso').reduce((a,m)=>a+ +m.monto,0),E=l.filter(m=>m.tipo==='egreso').reduce((a,m)=>a+ +m.monto,0);
+  rows.push('',';;;;Total ingresos;'+n(I),';;;;Total egresos;'+n(E),';;;;Saldo;'+n(I-E));
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+rows.join('\r\n')],{type:'text/csv;charset=utf-8'}));a.download=`movimientos_${d||'inicio'}_a_${h||'hoy'}.csv`;a.click()}
+function vPres(){return `<div class="card"><b>Nuevo presupuesto planificado</b><br><br><form onsubmit="addBud(event)"><label>Evento<input name="e" required></label><label>Tipo de evento<select name="te">${EVT.map(e=>`<option>${e}</option>`).join('')}</select></label><label>Monto planificado<input type="number" min="0" step="0.01" name="m" required></label><button class="b">Guardar</button></form></div><div class="card"><b>Presupuesto vs. gasto real</b>${budTable(true)}</div>`}
+const addBud=e=>{e.preventDefault();const f=e.target;run(sb.from('presupuestos').insert({evento:f.e.value.trim(),tipo_evento:f.te.value,monto:+f.m.value}))};
+const adjBud=id=>{const v=parseFloat(String(prompt('Nuevo monto planificado:')||'').replace(',','.'));if(v>=0)run(sb.from('presupuestos').update({monto:v}).eq('id',id))};
+const delBud=id=>confirm('¿Borrar este presupuesto?')&&run(sb.from('presupuestos').delete().eq('id',id));
+function vInv(){const l=S.items.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  return (staff()?`<div class="card"><b>Agregar material</b><br><br><form onsubmit="addItem(event)"><label>Nombre<input name="n" required></label><label>Cantidad<input type="number" min="1" name="c" value="1" required></label><label>Categoría<input name="k"></label><label>Fecha de compra<input type="date" name="f"></label><label>Origen / evento<input name="o"></label><button class="b">Agregar</button></form></div>`:'')+
+  `<div class="card"><b>Inventario</b>${l.length?`<div class="tw"><table><tr><th>Material</th><th>Cant.</th><th>Categoría</th><th>Origen</th><th>Estado</th>${staff()?'<th></th>':''}</tr>${l.map(i=>`<tr${i.estado==='baja'?' style="opacity:.7"':''}><td>${esc(i.nombre)}</td><td>${i.cant}</td><td>${esc(i.cat)}</td><td>${esc(i.origen)} <span class="mu">${esc(i.fecha)}</span></td><td>${i.estado==='activo'?'<span class="tag in">Activo</span>'+usoHtml(i):`<span class="tag out">Baja</span> <span class="mu">${esc(i.fecha_baja)}</span><br><span class="mu">Motivo: ${esc(i.motivo)}</span>`}</td>${staff()?`<td>${i.estado==='activo'?`<button class="s" onclick="baja('${i.id}')">Dar de baja</button>`:`<button class="s" onclick="reactivar('${i.id}')">Reactivar</button>`}</td>`:''}</tr>`).join('')}</table></div>`:'<p class="mu">Sin materiales.</p>'}</div>`}
+const addItem=e=>{e.preventDefault();const f=e.target;run(sb.from('materiales').insert({nombre:f.n.value.trim(),cant:+f.c.value,cat:f.k.value.trim(),fecha:f.f.value||null,origen:f.o.value.trim()}))};
+function baja(id){const it=S.items.find(x=>x.id===id);if(nUso(it)>0)return alert('Este material está en uso. Registrá primero la devolución.');const m=(prompt('Motivo de la baja (obligatorio):')||'').trim();if(m)run(sb.from('materiales').update({estado:'baja',motivo:m,fecha_baja:today()}).eq('id',id))}
+const reactivar=id=>run(sb.from('materiales').update({estado:'activo',motivo:null,fecha_baja:null}).eq('id',id));
+function vReqs(){const act=S.items.filter(i=>i.estado==='activo'),l=S.reqs.slice().sort((a,b)=>b.creado.localeCompare(a.creado)),L={pendiente:'Pendiente',aprobada:'En uso',rechazada:'Rechazada',devuelta:'Devuelto'};
+  return `<div class="card"><b>Solicitar material</b><br><br><form onsubmit="addReq(event)"><label>Material<select name="i" required>${act.map(i=>`<option value="${i.id}">${esc(i.nombre)} (${disp(i)} disp. de ${i.cant})</option>`).join('')}</select></label><label>Cantidad<input type="number" min="1" name="c" value="1" required></label><label>Actividad / evento<input name="e" required></label><label>Fecha de uso<input type="date" name="f"></label><label>Tu nombre y grupo<input name="q" required></label><button class="b">Enviar solicitud</button></form></div>
+  <div class="card"><b>${staff()?'Solicitudes':'Mis solicitudes'}</b>${l.length?`<div class="tw"><table><tr><th>Material</th><th>Cant.</th><th>Actividad</th><th>Solicitante</th><th>Estado</th>${staff()?'<th></th>':''}</tr>${l.map(r=>{const it=S.items.find(i=>i.id===r.material_id);return `<tr><td>${esc(it?.nombre)}</td><td>${r.cant}</td><td>${esc(r.evento)} <span class="mu">${esc(r.fecha_uso)}</span></td><td>${esc(r.quien)}</td><td><span class="tag">${L[r.estado]||r.estado}</span></td>${staff()?`<td>${r.estado==='pendiente'?`<button class="s" onclick="setReq('${r.id}','aprobada')">Aprobar</button> <button class="s" onclick="setReq('${r.id}','rechazada')">Rechazar</button>`:r.estado==='aprobada'?`<button class="s" onclick="setReq('${r.id}','devuelta')">Marcar devuelto</button>`:''}</td>`:''}</tr>`}).join('')}</table></div>`:'<p class="mu">Sin solicitudes.</p>'}</div>`}
+const addReq=e=>{e.preventDefault();const f=e.target;run(sb.from('solicitudes').insert({material_id:f.i.value,cant:+f.c.value,evento:f.e.value.trim(),fecha_uso:f.f.value||null,quien:f.q.value.trim()}))};
+function setReq(id,estado){if(estado==='aprobada'){const r=S.reqs.find(x=>x.id===id),it=S.items.find(x=>x.id===r.material_id);if(r.cant>disp(it)&&!confirm('Solo hay '+disp(it)+' disponibles. ¿Aprobar igual?'))return}run(sb.from('solicitudes').update({estado}).eq('id',id))}
+function vUsers(){const l=S.perf.slice().sort((a,b)=>(a.rol==='pendiente'?0:1)-(b.rol==='pendiente'?0:1));
+  return `<div class="card"><b>Usuarios</b><p class="mu">Los nuevos aparecen como Pendiente hasta que les asignes un rol.</p><div class="tw"><table>${l.map(p=>`<tr><td>${esc(p.email)}</td><td><select onchange="setRol('${p.id}',this.value)" ${p.id===me.id?'disabled':''}>${Object.entries(RN).map(([k,v])=>`<option value="${k}" ${p.rol===k?'selected':''}>${v}</option>`).join('')}</select></td></tr>`).join('')}</table></div></div>`}
+const setRol=(id,rol)=>run(sb.from('perfiles').update({rol}).eq('id',id));
+// ===== Tema claro/oscuro =====
+const isDark=()=>{const t=document.documentElement.dataset.theme;return t?t==='dark':matchMedia('(prefers-color-scheme:dark)').matches};
+const paintTg=()=>$('#tg').textContent=isDark()?'☀️ Fondo blanco':'🌙 Fondo negro';
+try{const t=localStorage.getItem('tema');if(t)document.documentElement.dataset.theme=t}catch(e){}
+$('#tg').onclick=()=>{const t=isDark()?'light':'dark';document.documentElement.dataset.theme=t;try{localStorage.setItem('tema',t)}catch(e){}paintTg()};paintTg();
+// ===== Distritos =====
+const fmt=d=>d?d.split('-').reverse().join('/'):'—';
+function vig(a,b){if(!a&&!b)return '';const t=today(),[l,c]=b&&b<t?['Vencido','out']:a&&a>t?['Próximo','mu']:['Vigente','in'];return `<span class="tag ${c}">${l}</span>`}
+function mand(a,b){return a||b?`${fmt(a)} al ${fmt(b)} ${vig(a,b)}`:'<span class="mu">Sin cargar</span>'}
+function formModal(title,fields,cb){const ov=document.createElement('div');ov.className='ov';
+  ov.innerHTML=`<div class="card"><b>${esc(title)}</b><br><br><form>${fields.map(([k,l,t,v])=>`<label>${esc(l)}<input name="${k}" type="${t}" value="${esc(v||'')}" ${k==='nombre'?'required':''}></label>`).join('')}<button class="b">Guardar</button><button type="button" class="s" id="cx">Cancelar</button></form></div>`;
+  document.body.append(ov);ov.querySelector('#cx').onclick=()=>ov.remove();
+  ov.querySelector('form').onsubmit=e=>{e.preventDefault();const o={};fields.forEach(([k,,t])=>{const v=e.target[k].value.trim();o[k]=t==='date'?(v||null):v});ov.remove();cb(o)}}
+function vDist(){const L=S.dist.slice().sort((a,b)=>(a.orden||0)-(b.orden||0));
+  return L.map(d=>{const gs=S.grupos.filter(g=>g.distrito_id===d.id).sort((a,b)=>a.nombre.localeCompare(b.nombre));
+    return `<div class="card"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b style="font-size:17px">${esc(d.nombre)}</b>${staff()?`<button class="s" onclick="editDist('${d.id}')">Editar distrito</button>`:''}</div>
+    <p style="margin:8px 0"><span class="mu">Director/a de distrito:</span> <b>${esc(d.director)||'—'}</b><br><span class="mu">Mandato:</span> ${mand(d.director_desde,d.director_hasta)}</p>
+    ${gs.length?`<div class="tw"><table><tr><th>Grupo scout</th><th>Jefe/a de grupo</th><th>Mandato</th>${staff()?'<th></th>':''}</tr>${gs.map(g=>`<tr><td>${esc(g.nombre)}</td><td>${esc(g.jefe)||'—'}</td><td>${mand(g.jefe_desde,g.jefe_hasta)}</td>${staff()?`<td><button class="s" onclick="editGrupo('${g.id}')">Editar</button>${role==='admin'?` <button class="s" onclick="delGrupo('${g.id}')">Borrar</button>`:''}</td>`:''}</tr>`).join('')}</table></div>`:'<p class="mu">Sin grupos cargados.</p>'}
+    ${staff()?`<br><button class="s" onclick="addGrupo('${d.id}')">+ Agregar grupo</button>`:''}</div>`}).join('')||'<p class="mu">Sin distritos.</p>'}
+const FD=d=>[['nombre','Nombre del distrito','text',d.nombre],['director','Director/a de distrito','text',d.director],['director_desde','Mandato desde','date',d.director_desde],['director_hasta','Mandato hasta','date',d.director_hasta]];
+const FG=g=>[['nombre','Nombre del grupo','text',g.nombre],['jefe','Jefe/a de grupo','text',g.jefe],['jefe_desde','Mandato desde','date',g.jefe_desde],['jefe_hasta','Mandato hasta','date',g.jefe_hasta]];
+const editDist=id=>formModal('Editar distrito',FD(S.dist.find(x=>x.id===id)),v=>run(sb.from('distritos').update(v).eq('id',id)));
+const addGrupo=did=>formModal('Nuevo grupo scout',FG({}),v=>run(sb.from('grupos').insert({...v,distrito_id:did})));
+const editGrupo=id=>formModal('Editar grupo',FG(S.grupos.find(x=>x.id===id)),v=>run(sb.from('grupos').update(v).eq('id',id)));
+const delGrupo=id=>confirm('¿Borrar este grupo?')&&run(sb.from('grupos').delete().eq('id',id));
+boot();
+</script></body></html>
